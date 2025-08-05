@@ -3,7 +3,7 @@ import time
 from bs4 import BeautifulSoup
 
 BOT_TOKEN = "8266970831:AAEAS5x1pfDSlm3UvA80PCsGsPgb_6nXW2E"
-CHAT_ID = None  # automatski će se postaviti
+CHAT_ID = "586131374" # automatski će se postaviti
 
 def get_chat_id():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
