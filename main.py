@@ -4,8 +4,6 @@ import time
 TELEGRAM_TOKEN = "8203967152:AAF6d3JldWam3TphxHYrofxquzUQsf3FI2M"
 TELEGRAM_CHAT_ID = "your_chat_id_here"  # <- ZAMENI sa tvojim pravim chat ID ako već nisi
 
-already_sent = set()
-
 def fetch_from_4zida():
     url = "https://api.4zida.rs/api/search/real-estates?city=novi-sad&types%5B%5D=flat&structure%5B%5D=three_rooms&size_from=65&price_to=180000"
     headers = {
@@ -41,6 +39,7 @@ def send_telegram_message(poruka):
         "parse_mode": "Markdown",
         "disable_web_page_preview": False
     }
+    print("📨 Šaljem poruku na Telegram:", poruka)
     requests.post(url, data=payload)
 
 def format_message(oglas):
@@ -52,11 +51,9 @@ def format_message(oglas):
 
 if __name__ == "__main__":
     while True:
-        print("🔍 Proveravam nove oglase...")
+        print("🔍 Proveravam sve oglase u Novom Sadu...")
         novi_oglasi = fetch_from_4zida()
         for oglas in novi_oglasi:
-            if oglas["id"] not in already_sent:
-                poruka = format_message(oglas)
-                send_telegram_message(poruka)
-                already_sent.add(oglas["id"])
+            poruka = format_message(oglas)
+            send_telegram_message(poruka)
         time.sleep(300)  # ⏱ pauza 5 minuta
