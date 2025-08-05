@@ -2,7 +2,7 @@ import requests
 import time
 from bs4 import BeautifulSoup
 
-BOT_TOKEN = "8203967152:AAf6d3JldWam3TphxHYrofxquzUQs3f3I2M"
+BOT_TOKEN = "8266970831:AAEAS5x1pfDSlm3UvA80PCsGsPgb_6nXW2E"
 CHAT_ID = "586131374"
 
 def send_telegram_message(message):
