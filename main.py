@@ -1,59 +1,45 @@
 import requests
 import time
+from bs4 import BeautifulSoup
 
-TELEGRAM_TOKEN = "8203967152:AAF6d3JldWam3TphxHYrofxquzUQsf3FI2M"
-TELEGRAM_CHAT_ID = "your_chat_id_here"  # <- ZAMENI sa tvojim pravim chat ID ako već nisi
+BOT_TOKEN = "8203967152:AAF6d3JldWam3TphxHYrofxquzUQsf3FI2M"
+CHAT_ID = "586131374"
+
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
+    try:
+        requests.post(url, data=payload)
+    except Exception as e:
+        print("Greška pri slanju poruke:", e)
 
 def fetch_from_4zida():
-    url = "https://api.4zida.rs/api/search/real-estates?city=novi-sad&types%5B%5D=flat&structure%5B%5D=three_rooms&size_from=65&price_to=180000"
-    headers = {
-        "accept": "application/json",
-        "user-agent": "Mozilla/5.0"
-    }
-    response = requests.get(url, headers=headers)
-    data = response.json()
+    url = "https://www.4zida.rs/prodaja-stanova/novi-sad?strana=1"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    stanovi = []
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        oglasi = soup.find_all("a", class_="StyledLink-sc-1b6t9b2-2")
+        for oglas in oglasi:
+            link = "https://www.4zida.rs" + oglas.get("href", "")
+            title = oglas.get_text().strip()
+            stanovi.append({"naziv": title, "link": link})
+    except Exception as e:
+        print("Greška 4zida:", e)
+    return stanovi
 
-    oglasi = []
-    for item in data.get("data", []):
-        id = item.get("id")
-        title = item.get("attributes", {}).get("title", "")
-        link = f"https://www.4zida.rs/real-estate/{id}"
-        cena = item.get("attributes", {}).get("price", {}).get("value", "")
-        kvadratura = item.get("attributes", {}).get("size", "")
-        struktura = item.get("attributes", {}).get("structure", "")
-        oglasi.append({
-            "id": id,
-            "naziv": title,
-            "cena": cena,
-            "kvadratura": kvadratura,
-            "struktura": struktura,
-            "link": link
-        })
-    return oglasi
-
-def send_telegram_message(poruka):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": poruka,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": False
-    }
-    print("📨 Šaljem poruku na Telegram:", poruka)
-    requests.post(url, data=payload)
-
-def format_message(oglas):
-    return f"""🏠 *{oglas['naziv']}*
-📐 {oglas['kvadratura']} m² | {oglas['struktura']}
-💶 {oglas['cena']} €
-🔗 [Pogledaj oglas]({oglas['link']})
-"""
+def format_message(stan):
+    return f"<b>{stan['naziv']}</b>\n👉 <a href='{stan['link']}'>Pogledaj oglas</a>"
 
 if __name__ == "__main__":
+    sent_links = set()
     while True:
-        print("🔍 Proveravam sve oglase u Novom Sadu...")
+        print("🔍 Proveravam nove oglase...")
         novi_oglasi = fetch_from_4zida()
-        for oglas in novi_oglasi:
-            poruka = format_message(oglas)
-            send_telegram_message(poruka)
-        time.sleep(300)  # ⏱ pauza 5 minuta
+        for stan in novi_oglasi:
+            if stan["link"] not in sent_links:
+                message = format_message(stan)
+                send_telegram_message(message)
+                sent_links.add(stan["link"])
+        time.sleep(300)  # 5 minuta
