@@ -2,7 +2,7 @@ import requests
 import time
 from bs4 import BeautifulSoup
 
-BOT_TOKEN = "8203967152:AAF6d3JldWam3TphxHYrofxquzUQsf3FI2M"
+BOT_TOKEN = "8203967152:AAf6d3JldWam3TphxHYrofxquzUQs3f3I2M"
 CHAT_ID = "586131374"
 
 def send_telegram_message(message):
@@ -30,16 +30,13 @@ def fetch_from_4zida():
     return stanovi
 
 def format_message(stan):
-    return f"<b>{stan['naziv']}</b>\n👉 <a href='{stan['link']}'>Pogledaj oglas</a>"
+    return f"<b>{stan['naziv']}</b>\n🔗 <a href='{stan['link']}'>Pogledaj oglas</a>"
 
 if __name__ == "__main__":
-    sent_links = set()
     while True:
         print("🔍 Proveravam nove oglase...")
         novi_oglasi = fetch_from_4zida()
         for stan in novi_oglasi:
-            if stan["link"] not in sent_links:
-                message = format_message(stan)
-                send_telegram_message(message)
-                sent_links.add(stan["link"])
-        time.sleep(300)  # 5 minuta
+            message = format_message(stan)
+            send_telegram_message(message)
+        time.sleep(300)
