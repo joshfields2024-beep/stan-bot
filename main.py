@@ -1,4 +1,3 @@
-
 import requests
 import time
 from bs4 import BeautifulSoup
@@ -6,6 +5,7 @@ import re
 
 BOT_TOKEN = "8266970831:AAEAS5x1pfDSlm3UvA80PCsGsPgb_6nXW2E"
 CHAT_ID = "586131374"
+SENT_LISTINGS = set()
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -16,74 +16,75 @@ def send_telegram_message(message):
     except Exception as e:
         print("❌ Greška pri slanju poruke:", e)
 
-def format_message(stan):
-    return f"<b>{stan['naziv']}</b>\nLokacija: {stan['lokacija']}\nCena: {stan['cena']}\n<a href='{stan['link']}'>🔎 Pogledaj oglas ({stan['izvor']})</a>"
+def get_all_pages(base_url, page_param="strana"):
+    page = 1
+    all_results = []
+    while True:
+        url = f"{base_url}&{page_param}={page}"
+        print(f"Scraping: {url}")
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
 
-def is_oglas_valid(title, kvadratura, cena, lokacija, opis):
-    try:
-        kv = int(re.search(r"(\d+)\s?m2", kvadratura).group(1))
-        price = int(re.sub(r"[^\d]", "", cena))
-        if price > 18000000: return False
-        if kv < 60: return False
-        if not any(x in lokacija.lower() for x in ["grbavica", "sajam", "detelinara", "naselje", "železnička"]):
-            return False
-        if not any(x in opis.lower() for x in ["parking", "garaž", "terasa", "internet", "lift"]):
-            return False
-        if not any(x in title.lower() for x in ["trosoban", "četvorosoban", "troiposoban"]):
-            return False
-        return True
-    except: return False
-
-def fetch_from_oglasi():
-    stanovi = []
-    headers = {"User-Agent": "Mozilla/5.0"}
-    for page in range(1, 50):  # ide do 50, sve dok ima rezultata
-        url = f"https://www.oglasi.rs/oglasi/nekretnine/prodaja-stanova/novi-sad/strana-{page}"
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.text, "html.parser")
-            oglasi = soup.find_all("div", class_="oglasi-item")
-
+        if "4zida.rs" in base_url:
+            oglasi = soup.find_all("a", class_="StyledLink-sc-16btg2-2")
             if not oglasi:
                 break
-
             for oglas in oglasi:
-                try:
-                    a_tag = oglas.find("a", href=True)
-                    if not a_tag: continue
+                link = "https://www.4zida.rs" + oglas.get("href", "")
+                title = oglas.get_text().strip()
+                if link not in SENT_LISTINGS:
+                    all_results.append({"naziv": title, "link": link, "izvor": "4zida.rs"})
+                    SENT_LISTINGS.add(link)
+        elif "oglasi.rs" in base_url:
+            oglasi = soup.find_all("div", class_="oglasi-item")
+            if not oglasi:
+                break
+            for oglas in oglasi:
+                a_tag = oglas.find("a", href=True)
+                if a_tag:
                     link = "https://www.oglasi.rs" + a_tag["href"]
                     title = a_tag.get_text().strip()
-
-                    lokacija = oglas.find("div", class_="lokacija").text.strip() if oglas.find("div", class_="lokacija") else ""
-                    kvadratura = oglas.find("div", class_="kvadratura").text.strip() if oglas.find("div", class_="kvadratura") else ""
-                    cena = oglas.find("div", class_="cena").text.strip() if oglas.find("div", class_="cena") else ""
-                    opis = oglas.text.lower()
-
-                    if is_oglas_valid(title, kvadratura, cena, lokacija, opis):
-                        stanovi.append({"naziv": title, "link": link, "izvor": "oglasi.rs", "lokacija": lokacija, "cena": cena})
-                except:
-                    continue
-        except Exception as e:
-            print("❌ Greška oglasi.rs:", e)
-            continue
-    return stanovi
-
-def main_loop():
-    poslati_linkovi = set()
-    while True:
-        print("🔍 Pretrazujem oglase...")
-        novi_oglasi = fetch_from_oglasi()
-
-        if not novi_oglasi:
-            send_telegram_message("⚠️ Nema oglasa koji ispunjavaju tvoje kriterijume.")
+                    if link not in SENT_LISTINGS:
+                        all_results.append({"naziv": title, "link": link, "izvor": "oglasi.rs"})
+                        SENT_LISTINGS.add(link)
         else:
-            for oglas in novi_oglasi:
-                if oglas['link'] not in poslati_linkovi:
-                    send_telegram_message(format_message(oglas))
-                    poslati_linkovi.add(oglas['link'])
-                    time.sleep(1)
+            break
 
-        time.sleep(600)  # svaka 10 minuta
+        page += 1
+    return all_results
+
+def format_message(stan):
+    return f"<b>{stan['naziv']}</b>\n<a href='{stan['link']}'>🔎 Pogledaj oglas ({stan['izvor']})</a>"
 
 if __name__ == "__main__":
-    main_loop()
+    base_urls = [
+        "https://www.4zida.rs/prodaja-stanova/novi-sad?soba=3-4-5-6&kvadratura=60-160&cena=0-180000&parking=true&garaza=true&terasa=true&internet=true&lift=true&lokacija=grbavica-novi-sad,sajam-novi-sad,zeleznicka-stanica-novi-sad,novo-naselje-novi-sad,nova-detelinara-novi-sad",
+        "https://www.oglasi.rs/oglasi/nekretnine/prodaja-stanova/novi-sad?cena_do=180000&kvadratura_od=60&kvadratura_do=160&parking=1&garaza=1&terasa=1&internet=1&lift=1&sobe=3-4-5-6"
+    ]
+
+    print("🚀 Počinjem inicijalnu pretragu svih oglasa...")
+    found_any = False
+    for base_url in base_urls:
+        oglasi = get_all_pages(base_url)
+        for oglas in oglasi:
+            found_any = True
+            send_telegram_message(format_message(oglas))
+            time.sleep(1)
+
+    if not found_any:
+        send_telegram_message("⚠️ Nema pronađenih oglasa koji ispunjavaju tvoje kriterijume.")
+
+    print("⏱️ Ulazim u loop na svakih 10 minuta...")
+    while True:
+        time.sleep(600)  # 10 minuta
+        for base_url in base_urls:
+            oglasi = get_all_pages(base_url)
+            new_listings = 0
+            for oglas in oglasi:
+                if oglas['link'] not in SENT_LISTINGS:
+                    send_telegram_message(format_message(oglas))
+                    SENT_LISTINGS.add(oglas['link'])
+                    new_listings += 1
+                    time.sleep(1)
+            if new_listings == 0:
+                print("🔍 Nema novih oglasa za sada.")
