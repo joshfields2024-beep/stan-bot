@@ -1,120 +1,89 @@
+
 import requests
 import time
 from bs4 import BeautifulSoup
+import re
 
 BOT_TOKEN = "8266970831:AAEAS5x1pfDSlm3UvA80PCsGsPgb_6nXW2E"
 CHAT_ID = "586131374"
-
-LOKACIJE = [
-    "grbavica", "sajam", "zeleznicka-stanica", "novo-naselje", "nova-detelinara"
-]
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
         response = requests.post(url, data=payload)
-        print(f"[TELEGRAM] Status: {response.status_code}")
+        print(f"[TELEGRAM] Status: {response.status_code}, Odgovor: {response.text}")
     except Exception as e:
         print("❌ Greška pri slanju poruke:", e)
 
-def validan_oglas(naziv):
-    naziv = naziv.lower()
-    return (
-        any(x in naziv for x in ["trosoban", "četvorosoban", "petosoban", "troiposoban", "višesoban"]) and
-        any(x in naziv for x in ["garaža", "parking", "garažu", "garaza", "parking mesto", "mesto"]) and
-        not any(x in naziv for x in ["izdavanje", "lokal"])
-    )
-
-def fetch_4zida():
-    stanovi = []
-    try:
-        for lok in LOKACIJE:
-            for page in range(1, 10):
-                url = f"https://www.4zida.rs/prodaja-stanova/novi-sad/{lok}?strana={page}"
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                soup = BeautifulSoup(response.text, "html.parser")
-                oglasi = soup.find_all("a", class_="StyledLink-sc-16btg2-2")
-                for oglas in oglasi:
-                    naslov = oglas.get_text(strip=True)
-                    if validan_oglas(naslov):
-                        link = "https://www.4zida.rs" + oglas.get("href", "")
-                        stanovi.append({"naziv": naslov, "link": link, "izvor": "4zida.rs"})
-    except Exception as e:
-        print("❌ 4zida.rs:", e)
-    return stanovi
-
-def fetch_oglasi_rs():
-    stanovi = []
-    try:
-        for lok in LOKACIJE:
-            for page in range(1, 10):
-                url = f"https://www.oglasi.rs/oglasi/nekretnine/prodaja-stanova/novi-sad/{lok}/page/{page}"
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                soup = BeautifulSoup(response.text, "html.parser")
-                oglasi = soup.find_all("div", class_="oglasi-item")
-                for oglas in oglasi:
-                    a_tag = oglas.find("a", href=True)
-                    if a_tag:
-                        naslov = a_tag.get_text(strip=True)
-                        if validan_oglas(naslov):
-                            link = "https://www.oglasi.rs" + a_tag["href"]
-                            stanovi.append({"naziv": naslov, "link": link, "izvor": "oglasi.rs"})
-    except Exception as e:
-        print("❌ oglasi.rs:", e)
-    return stanovi
-
-def fetch_nekretnine_rs():
-    stanovi = []
-    try:
-        for lok in LOKACIJE:
-            for page in range(1, 10):
-                url = f"https://www.nekretnine.rs/prodaja-stanova/novi-sad/{lok}/?page={page}"
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                soup = BeautifulSoup(response.text, "html.parser")
-                oglasi = soup.find_all("div", class_="StyledListingCard-sc-12g7x8e-0")
-                for oglas in oglasi:
-                    a_tag = oglas.find("a", href=True)
-                    if a_tag:
-                        naslov = a_tag.get_text(strip=True)
-                        if validan_oglas(naslov):
-                            link = "https://www.nekretnine.rs" + a_tag["href"]
-                            stanovi.append({"naziv": naslov, "link": link, "izvor": "nekretnine.rs"})
-    except Exception as e:
-        print("❌ nekretnine.rs:", e)
-    return stanovi
-
-def fetch_halooglasi():
-    stanovi = []
-    try:
-        for lok in LOKACIJE:
-            for page in range(1, 10):
-                url = f"https://www.halooglasi.com/nekretnine/prodaja-stanova/novi-sad/{lok}?page={page}"
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                soup = BeautifulSoup(response.text, "html.parser")
-                oglasi = soup.find_all("article", class_="product-list-item")
-                for oglas in oglasi:
-                    a_tag = oglas.find("a", href=True)
-                    if a_tag:
-                        naslov = a_tag.get_text(strip=True)
-                        if validan_oglas(naslov):
-                            link = "https://www.halooglasi.com" + a_tag["href"]
-                            stanovi.append({"naziv": naslov, "link": link, "izvor": "halooglasi.com"})
-    except Exception as e:
-        print("❌ halooglasi.com:", e)
-    return stanovi
-
 def format_message(stan):
-    return f"<b>{stan['naziv']}</b>\n<a href='{stan['link']}'>🔗 Pogledaj oglas ({stan['izvor']})</a>"
+    return f"<b>{stan['naziv']}</b>\nLokacija: {stan['lokacija']}\nCena: {stan['cena']}\n<a href='{stan['link']}'>🔎 Pogledaj oglas ({stan['izvor']})</a>"
+
+def is_oglas_valid(title, kvadratura, cena, lokacija, opis):
+    try:
+        kv = int(re.search(r"(\d+)\s?m2", kvadratura).group(1))
+        price = int(re.sub(r"[^\d]", "", cena))
+        if price > 18000000: return False
+        if kv < 60: return False
+        if not any(x in lokacija.lower() for x in ["grbavica", "sajam", "detelinara", "naselje", "železnička"]):
+            return False
+        if not any(x in opis.lower() for x in ["parking", "garaž", "terasa", "internet", "lift"]):
+            return False
+        if not any(x in title.lower() for x in ["trosoban", "četvorosoban", "troiposoban"]):
+            return False
+        return True
+    except: return False
+
+def fetch_from_oglasi():
+    stanovi = []
+    headers = {"User-Agent": "Mozilla/5.0"}
+    for page in range(1, 50):  # ide do 50, sve dok ima rezultata
+        url = f"https://www.oglasi.rs/oglasi/nekretnine/prodaja-stanova/novi-sad/strana-{page}"
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, "html.parser")
+            oglasi = soup.find_all("div", class_="oglasi-item")
+
+            if not oglasi:
+                break
+
+            for oglas in oglasi:
+                try:
+                    a_tag = oglas.find("a", href=True)
+                    if not a_tag: continue
+                    link = "https://www.oglasi.rs" + a_tag["href"]
+                    title = a_tag.get_text().strip()
+
+                    lokacija = oglas.find("div", class_="lokacija").text.strip() if oglas.find("div", class_="lokacija") else ""
+                    kvadratura = oglas.find("div", class_="kvadratura").text.strip() if oglas.find("div", class_="kvadratura") else ""
+                    cena = oglas.find("div", class_="cena").text.strip() if oglas.find("div", class_="cena") else ""
+                    opis = oglas.text.lower()
+
+                    if is_oglas_valid(title, kvadratura, cena, lokacija, opis):
+                        stanovi.append({"naziv": title, "link": link, "izvor": "oglasi.rs", "lokacija": lokacija, "cena": cena})
+                except:
+                    continue
+        except Exception as e:
+            print("❌ Greška oglasi.rs:", e)
+            continue
+    return stanovi
+
+def main_loop():
+    poslati_linkovi = set()
+    while True:
+        print("🔍 Pretrazujem oglase...")
+        novi_oglasi = fetch_from_oglasi()
+
+        if not novi_oglasi:
+            send_telegram_message("⚠️ Nema oglasa koji ispunjavaju tvoje kriterijume.")
+        else:
+            for oglas in novi_oglasi:
+                if oglas['link'] not in poslati_linkovi:
+                    send_telegram_message(format_message(oglas))
+                    poslati_linkovi.add(oglas['link'])
+                    time.sleep(1)
+
+        time.sleep(600)  # svaka 10 minuta
 
 if __name__ == "__main__":
-    print("🔍 Tražim stanove u odabranim delovima Novog Sada...")
-
-    svi_oglasi = fetch_4zida() + fetch_oglasi_rs() + fetch_nekretnine_rs() + fetch_halooglasi()
-
-    if not svi_oglasi:
-        send_telegram_message("⚠️ Nema oglasa koji ispunjavaju tvoje kriterijume.")
-    else:
-        for oglas in svi_oglasi:
-            send_telegram_message(format_message(oglas))
-            time.sleep(1)
+    main_loop()
