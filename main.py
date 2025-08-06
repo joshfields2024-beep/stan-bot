@@ -1,6 +1,6 @@
 import json
 import time
-from scrapers.scraper_4zida import search_4zida
+from scrapers.scraper_4zida import search_oglasi_rs
 from telegram_bot import send_telegram_message
 
 def load_settings():
