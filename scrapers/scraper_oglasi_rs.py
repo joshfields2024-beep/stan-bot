@@ -3,7 +3,8 @@ import requests
 from bs4 import BeautifulSoup
 
 def search_oglasi_rs(settings):
-    base_url = "https://www.oglasi.rs/nekretnine/izdavanje/stanovi?"
+    base_url = "base_url = "https://www.oglasi.rs/nekretnine/prodaja/stanovi"
+"
 
     params = {
         "price_to": settings["max_price"],
