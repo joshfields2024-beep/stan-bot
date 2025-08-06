@@ -1,6 +1,6 @@
 import json
 import time
-from scrapers.scraper_4zida import search_oglasi_rs
+from scrapers.scraper_oglasi_rs import search_oglasi_rs
 from telegram_bot import send_telegram_message
 
 def load_settings():
@@ -11,9 +11,8 @@ def main():
     settings = load_settings()
     all_results = []
 
-    for scraper in [search_4zida]:
-        results = scraper(settings)
-        all_results.extend(results)
+    results = search_oglasi_rs(settings)
+    all_results.extend(results)
 
     if not all_results:
         send_telegram_message("⚠️ Nema pronađenih oglasa koji ispunjavaju tvoje kriterijume.")
