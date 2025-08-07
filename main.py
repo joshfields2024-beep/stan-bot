@@ -7,11 +7,11 @@ def load_settings():
         return json.load(f)
 
 def main():
-    print("[DEBUG] Pokrećem Selenium scraper za oglasi.rs")
-    results = search_oglasi_rs(load_settings())
-
+    print("[DEBUG] Pokrećem Selenium scraper preko Browserless")
+    settings = load_settings()
+    results = search_oglasi_rs(settings)
     if not results:
-        send_telegram_message("⚠ Nema pronađenih oglasa koji ispunjavaju tvoje kriterijume.")
+        send_telegram_message("⚠️ Nema pronađenih oglasa koji ispunjavaju tvoje kriterijume.")
     else:
         for res in results:
             send_telegram_message(res)
