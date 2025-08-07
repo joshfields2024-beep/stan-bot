@@ -5,7 +5,7 @@ import time
 
 def search_oglasi_rs(settings):
     options = Options()
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.set_capability("browserless:token", os.environ["BROWSER_TOKEN"])
     driver = webdriver.Remote(
