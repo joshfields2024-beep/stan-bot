@@ -7,10 +7,8 @@ def load_settings():
         return json.load(f)
 
 def main():
-    settings = load_settings()
-    print("[DEBUG] Pokrenut scraper sa filter URLom")
-    results = search_oglasi_rs(settings)
-
+    print("[DEBUG] Pokrećem scraper za oglasi.rs sa filter URL-om")
+    results = search_oglasi_rs(load_settings())
     if not results:
         send_telegram_message("⚠️ Nema pronađenih oglasa koji ispunjavaju tvoje kriterijume.")
     else:
