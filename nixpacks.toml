@@ -1,12 +1,7 @@
 # nixpacks.toml
 
 [phases.setup]
-nixPkgs = [
-  "chromium",
-  "chromedriver",
-  "nss",
-  "libglib2.0-0",
-  "libnss3",
-  "libgconf-2-4",
-  "libfontconfig1"
-]
+nixPkgs = ["...", "chromium", "chromedriver", "nss", "libglib2.0-0", "libnss3", "libgconf-2-4", "libfontconfig1"]
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.12"
