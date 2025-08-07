@@ -1,7 +1,5 @@
 {
-  "max_price": 180000,
-  "min_size": 60,
-  "room_count": 3,
-  "telegram_bot_token": "8203967152:AAF6d3JldWam3TphxHYrofxquzUQsf3FI2M",
+  "search_url": "https://www.oglasi.rs/nekretnine/prodaja-stanova/novi-sad/grbavica+zeleznicka-stanica+sajam+rotkvarija+nova-detelinara+novo-naselje?pr%5Be%5D=180000&pr%5Bc%5D=EUR&d%5BSobnost%5D%5B0%5D=Trosoban&d%5BSobnost%5D%5B1%5D=%C4%8Cetvorosoban+i+vi%C5%A1e&d%5BSobnost%5D%5B2%5D=Troiposoban&d%5BKvadratura%5D%5B0%5D=60&d%5BKvadratura%5D%5B1%5D=70&d%5BKvadratura%5D%5B2%5D=80&d%5BKvadratura%5D%5B3%5D=90&d%5BKvadratura%5D%5B4%5D=100&d%5BKvadratura%5D%5B5%5D=110&d%5BKvadratura%5D%5B6%5D=120&d%5BTerasa%5D=1&d%5BLift%5D=1&d%5BParking%2C+gara%C5%BEa%5D=1",
+  "telegram_bot_token": "8203967152:AAF6d3JldWam3TphxHYrofxquqUQsf3FI2M",
   "telegram_chat_id": "586131374"
 }
