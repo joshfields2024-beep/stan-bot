@@ -1,25 +1,25 @@
+[nixpacks]
+providers = ["python"]
+
 [phases.setup]
 nixPkgs = [
-  "chromium",
+  "alsa-lib",
   "chromedriver",
+  "chromium",
+  "fontconfig",
+  "freetype",
   "glib",
   "glibc",
-  "libx11",
-  "libxcomposite",
-  "libxcursor",
-  "libxdamage",
-  "libxext",
-  "libxfixes",
-  "libxi",
-  "libxrandr",
-  "libxrender",
-  "libxtst",
+  "libX11",
+  "libXcomposite",
+  "libXcursor",
+  "libXdamage",
+  "libXext",
+  "libXfixes",
+  "libXi",
+  "libXrandr",
+  "libXrender",
+  "libXtst",
   "mesa",
-  "nss",
-  "freetype",
-  "fontconfig",
-  "alsa-lib"
+  "nss"
 ]
-
-[start]
-cmd = "python main.py"
