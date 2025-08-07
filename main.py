@@ -1,5 +1,4 @@
 import json
-import time
 from scrapers.scraper_oglasi_rs import search_oglasi_rs
 from telegram_bot import send_telegram_message
 
