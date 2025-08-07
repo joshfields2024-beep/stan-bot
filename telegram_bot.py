@@ -13,5 +13,4 @@ def send_telegram_message(message):
         "text": message,
         "parse_mode": "HTML"
     }
-    response = requests.post(url, data=payload)
-    print(f"Telegram response: {response.status_code} - {response.text}")
+    requests.post(url, data=payload)
