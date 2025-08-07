@@ -8,15 +8,13 @@ def load_settings():
 
 def main():
     settings = load_settings()
-    all_results = []
-
+    print("[DEBUG] Pokrenut scraper za oglasi.rs")
     results = search_oglasi_rs(settings)
-    all_results.extend(results)
 
-    if not all_results:
+    if not results:
         send_telegram_message("⚠️ Nema pronađenih oglasa koji ispunjavaju tvoje kriterijume.")
     else:
-        for result in all_results:
+        for result in results:
             send_telegram_message(result)
 
 if __name__ == "__main__":
