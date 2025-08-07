@@ -1,8 +1,14 @@
-import requests
+from selenium.webdriver import Chrome
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+import time
 import re
-from bs4 import BeautifulSoup
 
 def search_oglasi_rs(settings):
+    options = Options()
+    options.headless = True
+    driver = Chrome(options=options)
+
     url = (
         "https://www.oglasi.rs/nekretnine/prodaja-stanova/novi-sad/"
         "grbavica+zeleznicka-stanica+sajam+rotkvarija+nova-detelinara+novo-naselje"
@@ -21,39 +27,23 @@ def search_oglasi_rs(settings):
         "&d[Lift]=1"
         "&d[Parking,%20garaža]=1"
     )
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-    except Exception as e:
-        return [f"❌ Greška pri konekciji sa oglasi.rs: {e}"]
+    driver.get(url)
+    time.sleep(5)  # da se svi oglasi učitaju
 
-    text = BeautifulSoup(resp.text, "lxml").get_text(separator="\n", strip=True)
-    blocks = re.split(r"\n(?=\d{1,3}(?:\.\d{3})*,\d{2}\s*EUR\n)", text)
+    items = driver.find_elements(By.CSS_SELECTOR, "div.article")
+    print(f"[DEBUG] Selenium pronašao oglasa: {len(items)}")
+
     results = []
-
-    for block in blocks[1:]:
-        price_match = re.search(r"([\d\.\,]+)\s*EUR", block)
-        sqm_match = re.search(r"Kvadratura:\s*(\d+)", block)
-        rooms_match = re.search(r"Sobnost:\s*([\w \+\-]+)", block)
-
-        if not all([price_match, sqm_match, rooms_match]):
+    for item in items:
+        try:
+            a = item.find_element(By.TAG_NAME, "a")
+            href = a.get_attribute("href")
+            title = a.text.strip()
+            price = item.find_element(By.CSS_SELECTOR, ".price").text.strip()
+        except Exception:
             continue
 
-        price = float(price_match.group(1).replace(".", "").replace(",", "."))
-        sqm = int(sqm_match.group(1))
-        rooms = rooms_match.group(1)
+        results.append(f"<b>{title}</b>\n{price}\n<a href='{href}'>Otvori oglas</a>")
 
-        if price > settings["max_price"] or not (settings["min_size"] <= sqm <= 130):
-            continue
-        if not re.search(r"Trosoban|Troiposoban|Četvorosoban", rooms, re.IGNORECASE):
-            continue
-
-        # Najbolji naslov — linija do cene
-        title = block.split(price_match.group(0))[0].strip().split("\n")[-1]
-        url_full = "https://www.oglasi.rs"
-
-        msg = f"<b>{title}</b>\nCena: {price} EUR | {sqm} m² | Sobnost: {rooms}\n<a href='{url_full}'>Otvori oglas</a>"
-        results.append(msg)
-
-    print(f"[DEBUG] Parser pronašao oglasa: {len(results)}")
+    driver.quit()
     return results
