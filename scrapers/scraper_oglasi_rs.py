@@ -1,39 +1,36 @@
-# scraper_oglasi_rs.py
 import requests
 from bs4 import BeautifulSoup
 
 def search_oglasi_rs(settings):
+    results = []
     base_url = "https://www.oglasi.rs/nekretnine/prodaja/stanovi"
+    
     params = {
         "price_to": settings["max_price"],
         "rooms_from": settings["room_count"],
-        "area_from": settings["min_size"]
+        "area_from": settings["min_size"],
+        "location": "novi-sad",
+        "ad_type": "prodaja"
     }
 
     try:
-        resp = requests.get(base_url, params=params, timeout=10)
-        resp.raise_for_status()
-    except Exception as e:
+        response = requests.get(base_url, params=params)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
         return [f"❌ Greška pri konekciji sa oglasi.rs: {e}"]
 
-    soup = BeautifulSoup(resp.text, "lxml")
-    # Prilagodi ako se HTML promenio
-    listings = soup.find_all("div", class_="list-group-item")
-    results = []
+    soup = BeautifulSoup(response.text, "lxml")
+    listings = soup.select("div.article-body")
 
-    for item in listings:
-        title_tag = item.find("h2")
-        if not title_tag:
-            continue
-        title = title_tag.get_text(strip=True)
-        link = title_tag.find("a")
-        url = "https://www.oglasi.rs" + (link["href"] if link and link.get("href") else "")
-        price = item.find("div", class_="price")
-        price_text = price.get_text(strip=True) if price else ""
-        desc = item.find("div", class_="description")
-        desc_text = desc.get_text(strip=True) if desc else ""
+    for listing in listings:
+        title = listing.select_one("h2.title")
+        price = listing.select_one("span.price")
+        url_tag = listing.select_one("a")
 
-        message = f"<b>{title}</b>\n{price_text}\n{desc_text}\n<a href='{url}'>Otvori oglas</a>"
-        results.append(message)
+        if title and price and url_tag:
+            title_text = title.get_text(strip=True)
+            price_text = price.get_text(strip=True)
+            link = "https://www.oglasi.rs" + url_tag["href"]
+            results.append(f"<b>{title_text}</b>\n{price_text}\n{link}")
 
     return results
