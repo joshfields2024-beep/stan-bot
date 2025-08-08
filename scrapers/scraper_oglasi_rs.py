@@ -1,22 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Selenium scraper za oglasi.rs sa potpunom podrškom za napredne filtere.
+Scraper za oglasi.rs BEZ browsera (requests + BeautifulSoup).
 Gradi IDENTIČAN URL kao u primeru (lokacije, sobnost, kvadratura, terasa, lift, parking).
 Expose-uje search_oglasi_rs(criteria) -> list[dict].
 """
 
 from __future__ import annotations
 from typing import Dict, Any, List, Iterable
-import time
 import re
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import WebDriverException, TimeoutException, NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager
+import requests
+from bs4 import BeautifulSoup
 
 
 # ------------ Helperi za URL/slug ------------
@@ -34,7 +29,6 @@ def _latin_slug(s: str) -> str:
     s = re.sub(r"-{2,}", "-", s)
     return s.strip("-")
 
-# Povoljni slugovi za kvartove ako nešto specifično traže
 _NEIGHBORHOOD_SLUG_OVERRIDES = {
     "Železnička stanica": "zeleznicka-stanica",
     "Nova Detelinara": "nova-detelinara",
@@ -51,42 +45,24 @@ def _neighborhood_slug(name: str) -> str:
 # ------------ URL gradnja ------------
 
 def _build_url(criteria: Dict[str, Any]) -> str:
-    """
-    Primer kriterijuma:
-    {
-        "tip": "prodaja" | "izdavanje",
-        "vrsta": "stan" | "kuca",
-        "grad": "Novi Sad",
-        "min_cena": None,
-        "max_cena": 180000,
-        "valuta": "EUR",
-        "lokacije": ["Grbavica", "Železnička stanica", ...],
-        "sobnost": ["Trosoban", "Četvorosoban i više", "Troiposoban"],
-        "kvadratura": [60, 70, 80, 90, 100, 110, 120],
-        "terasa": True,
-        "lift": True,
-        "parking": True,
-    }
-    """
-
     tip = criteria.get("tip", "prodaja")
     vrsta = criteria.get("vrsta", "stan")
     grad = criteria.get("grad", "")
 
-    # segmenti putanje
     tip_seg = "prodaja" if tip == "prodaja" else "izdavanje"
-    vrsta_seg = "stanova" if vrsta == "stan" else "kuca"
+    vrsta_seg = "prodaja-stanova" if vrsta == "stan" and tip == "prodaja" else (
+        "izdavanje-stanova" if vrsta == "stan" else ("prodaja-kuca" if tip == "prodaja" else "izdavanje-kuca")
+    )
+    # njihov URL format za prodaju stanova je /prodaja-stanova/<grad>[/kvart+kvart...]
     city_seg = _latin_slug(grad)
 
-    # opcioni segment za više lokacija, spajaju se sa '+'
     neighs: Iterable[str] = criteria.get("lokacije") or []
     neigh_seg = "+".join(_neighborhood_slug(n) for n in neighs) if neighs else ""
 
-    path = f"https://www.oglasi.rs/nekretnine/{tip_seg}-{vrsta_seg}/{city_seg}"
+    base = f"https://www.oglasi.rs/nekretnine/{vrsta_seg}/{city_seg}"
     if neigh_seg:
-        path += f"/{neigh_seg}"
+        base += f"/{neigh_seg}"
 
-    # query parametri (koristimo doseq=True za ponavljajuće ključeve)
     pr_params = {}
     if criteria.get("min_cena") is not None:
         pr_params["pr[s]"] = int(criteria["min_cena"])
@@ -95,45 +71,107 @@ def _build_url(criteria: Dict[str, Any]) -> str:
     pr_params["pr[c]"] = criteria.get("valuta", "EUR")
 
     d_params = {}
-    # Sobnost – više vrednosti
     if criteria.get("sobnost"):
         d_params["d[Sobnost]"] = list(criteria["sobnost"])
-    # Kvadratura – više predefinisanih opsega kao u linku
     if criteria.get("kvadratura"):
         d_params["d[Kvadratura]"] = [int(x) for x in criteria["kvadratura"]]
-    # Bools
     if criteria.get("terasa"):
         d_params["d[Terasa]"] = 1
     if criteria.get("lift"):
         d_params["d[Lift]"] = 1
     if criteria.get("parking"):
-        # Ključ na sajtu je "Parking, garaža"
         d_params["d[Parking, garaža]"] = 1
 
-    # spoj u jedan dict sa listama gde treba
     query: Dict[str, Any] = {}
     query.update(pr_params)
     query.update(d_params)
 
     qs = urlencode(query, doseq=True)
-    return f"{path}?{qs}" if qs else path
+    return f"{base}?{qs}" if qs else base
 
 
-# ------------ Selenium setup ------------
+# ------------ HTTP / Parse ------------
 
-def _build_driver() -> webdriver.Chrome:
-    chrome_opts = Options()
-    chrome_opts.add_argument("--headless=new")
-    chrome_opts.add_argument("--no-sandbox")
-    chrome_opts.add_argument("--disable-dev-shm-usage")
-    chrome_opts.add_argument("--disable-gpu")
-    chrome_opts.add_argument("--window-size=1920,1080")
-    chrome_opts.add_argument("--blink-settings=imagesEnabled=false")
-    chrome_opts.add_experimental_option("excludeSwitches", ["enable-logging"])
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_opts)
-    driver.set_page_load_timeout(30)
-    return driver
+_HDRS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Accept-Language": "sr-RS,sr;q=0.9,en;q=0.8",
+}
+
+def _fetch(url: str) -> str:
+    r = requests.get(url, headers=_HDRS, timeout=25)
+    r.raise_for_status()
+    return r.text
+
+def _abs(base: str, href: str) -> str:
+    try:
+        return urljoin(base, href)
+    except Exception:
+        return href
+
+def _parse_list(html: str, base_url: str) -> List[Dict[str, Any]]:
+    soup = BeautifulSoup(html, "lxml")
+
+    # probaj više “kontejnera“ za kartice
+    cards = []
+    # 1) generički članci/karte
+    cards.extend(soup.select("article, .card, li, .oglas, .result"))
+    # 2) fallback: svi linkovi ka /nekretnine/
+    links_fallback = soup.select("a[href*='/nekretnine/']")
+    if not cards and links_fallback:
+        cards = links_fallback
+
+    results: List[Dict[str, Any]] = []
+    seen = set()
+
+    for el in cards:
+        # link
+        a = el.select_one("a[href]")
+        href = a.get("href") if a else None
+        if not href:
+            continue
+        url = _abs(base_url, href)
+        if "/nekretnine/" not in url:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+
+        # naslov
+        title = ""
+        for sel in ["h2", "h3", "h4", ".title", ".naslov", "strong"]:
+            t = el.select_one(sel)
+            if t and t.get_text(strip=True):
+                title = t.get_text(strip=True)
+                break
+
+        # cena
+        price = ""
+        for sel in [".cena", ".price", "b", "strong", ".amount"]:
+            p = el.select_one(sel)
+            if p and p.get_text(strip=True):
+                price = p.get_text(strip=True)
+                break
+
+        # lokacija
+        location = ""
+        for sel in [".lokacija", ".location", ".meta", ".detalji"]:
+            l = el.select_one(sel)
+            if l and l.get_text(strip=True):
+                location = l.get_text(strip=True)
+                break
+
+        results.append(
+            {
+                "title": title,
+                "price": price,
+                "location": location,
+                "url": url,
+                "source": "oglasi.rs",
+            }
+        )
+
+    return results
 
 
 # ------------ Public API ------------
@@ -141,90 +179,16 @@ def _build_driver() -> webdriver.Chrome:
 def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Vraća listu oglasa (title, price, location, url, source) na osnovu criteria.
-    Ne ruši app na greške – vraća praznu listu i loguje problem.
+    Radi bez browsera; robustan na manje izmene HTML-a.
     """
     url = _build_url(criteria)
-
     try:
-        driver = _build_driver()
-    except WebDriverException as e:
-        print(f"[scraper_oglasi_rs] Driver init failed: {e}")
+        html = _fetch(url)
+    except Exception as e:
+        print(f"[scraper_oglasi_rs] HTTP error: {e}")
         return []
-
-    results: List[Dict[str, Any]] = []
     try:
-        driver.get(url)
-        time.sleep(2.5)
-
-        # više fallback selektora zbog promena na sajtu
-        card_selectors = [
-            "article[class*='oglas']",
-            "div[class*='oglas']",
-            "li[class*='oglas']",
-            "div[class*='card']",
-            "div[data-entity*='oglas']",
-        ]
-        cards = []
-        for sel in card_selectors:
-            cards = driver.find_elements(By.CSS_SELECTOR, sel)
-            if len(cards) >= 5:
-                break
-        if not cards:
-            cards = driver.find_elements(By.CSS_SELECTOR, "a[href*='/nekretnine/']")
-
-        for el in cards[:80]:
-            try:
-                link_el = el.find_element(By.CSS_SELECTOR, "a[href]")
-            except NoSuchElementException:
-                link_el = el
-
-            url_ad = link_el.get_attribute("href") or ""
-            title = ""
-            price = ""
-            location = ""
-
-            for tsel in ["h2", "h3", "h4", "[class*='title']"]:
-                try:
-                    title = el.find_element(By.CSS_SELECTOR, tsel).text.strip()
-                    if title:
-                        break
-                except NoSuchElementException:
-                    continue
-
-            for psel in ["[class*='cena']", "[class*='price']", "strong", "b"]:
-                try:
-                    price = el.find_element(By.CSS_SELECTOR, psel).text.strip()
-                    if price:
-                        break
-                except NoSuchElementException:
-                    continue
-
-            for lsel in ["[class*='lokacija']", "[class*='location']"]:
-                try:
-                    location = el.find_element(By.CSS_SELECTOR, lsel).text.strip()
-                    if location:
-                        break
-                except NoSuchElementException:
-                    continue
-
-            if url_ad or title or price:
-                results.append(
-                    {
-                        "title": title,
-                        "price": price,
-                        "location": location,
-                        "url": url_ad,
-                        "source": "oglasi.rs",
-                    }
-                )
-
-    except (TimeoutException, WebDriverException) as e:
-        print(f"[scraper_oglasi_rs] Page error: {e}")
-        results = []
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
-
-    return results
+        return _parse_list(html, url)
+    except Exception as e:
+        print(f"[scraper_oglasi_rs] Parse error: {e}")
+        return []
