@@ -2,7 +2,7 @@
 """
 Drop-in Selenium setup za oglasi.rs.
 Radi headless, bez manuelnog driver path-a (koristi webdriver-manager).
-Expose-uje funkciju search_oglasi_rs(criteria) -> list[dict] da ne ruši ostatak koda.
+Expose-uje funkciju search_oglasi_rs(criteria) -> list[dict].
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 def _build_driver() -> webdriver.Chrome:
     chrome_opts = Options()
-    # stabilan headless za server/CI
     chrome_opts.add_argument("--headless=new")
     chrome_opts.add_argument("--no-sandbox")
     chrome_opts.add_argument("--disable-dev-shm-usage")
@@ -27,7 +26,6 @@ def _build_driver() -> webdriver.Chrome:
     chrome_opts.add_argument("--window-size=1920,1080")
     chrome_opts.add_argument("--blink-settings=imagesEnabled=false")
     chrome_opts.add_experimental_option("excludeSwitches", ["enable-logging"])
-    # kreiranje driver-a (automatski preuzima odgovarajući ChromeDriver)
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_opts)
     driver.set_page_load_timeout(30)
@@ -35,20 +33,9 @@ def _build_driver() -> webdriver.Chrome:
 
 
 def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Minimalna, robusna verzija – ako strana/selektori promene, vrati praznu listu umesto da ruši app.
-    criteria primer:
-        {
-            "tip": "prodaja" | "izdavanje",
-            "vrsta": "stan" | "kuca",
-            "grad": "Beograd",
-            "min_cena": 50000,
-            "max_cena": 150000
-        }
-    """
     base = "https://www.oglasi.rs/nekretnine"
-    # vrlo jednostavan query sklop; po potrebi proširi
     params = []
+
     if criteria.get("tip") == "izdavanje":
         params.append("vrsta-nekretnine=izdavanje")
     elif criteria.get("tip") == "prodaja":
@@ -70,17 +57,14 @@ def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
     try:
         driver = _build_driver()
     except WebDriverException as e:
-        # najčešći uzrok je da nema instaliran Chrome u okruženju
-        # ne rušimo servis – vraćamo prazno i kratku poruku u log
         print(f"[scraper_oglasi_rs] Driver init failed: {e}")
         return []
 
     results: List[Dict[str, Any]] = []
     try:
         driver.get(url)
-        time.sleep(2.5)  # kratko čekanje da se učita lista
+        time.sleep(2.5)
 
-        # pokušaj detekcije kartica oglasa – fallback kroz nekoliko selektora
         card_selectors = [
             "article[class*='oglas']",
             "div[class*='oglas']",
@@ -93,14 +77,12 @@ def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
             if len(cards) >= 5:
                 break
         if not cards:
-            # fallback: linkovi koji vode na /nekretnine/
             cards = driver.find_elements(By.CSS_SELECTOR, "a[href*='/nekretnine/']")
 
         for el in cards[:50]:
             try:
                 link_el = el.find_element(By.CSS_SELECTOR, "a[href]")
             except NoSuchElementException:
-                # fallback direktno sa elementa
                 link_el = el
 
             url_ad = link_el.get_attribute("href") or ""
@@ -108,7 +90,6 @@ def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
             price = ""
             location = ""
 
-            # naslov
             for tsel in ["h2", "h3", "h4", "[class*='title']"]:
                 try:
                     title = el.find_element(By.CSS_SELECTOR, tsel).text.strip()
@@ -117,7 +98,6 @@ def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
                 except NoSuchElementException:
                     continue
 
-            # cena
             for psel in ["[class*='cena']", "[class*='price']", "strong"]:
                 try:
                     price = el.find_element(By.CSS_SELECTOR, psel).text.strip()
@@ -126,7 +106,32 @@ def search_oglasi_rs(criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
                 except NoSuchElementException:
                     continue
 
-            # lokacija
             for lsel in ["[class*='lokacija']", "[class*='location']"]:
                 try:
-                    location = el.find_element(By.CSS_SELECTOR, lsel).
+                    location = el.find_element(By.CSS_SELECTOR, lsel).text.strip()
+                    if location:
+                        break
+                except NoSuchElementException:
+                    continue
+
+            if url_ad or title or price:
+                results.append(
+                    {
+                        "title": title,
+                        "price": price,
+                        "location": location,
+                        "url": url_ad,
+                        "source": "oglasi.rs",
+                    }
+                )
+
+    except (TimeoutException, WebDriverException) as e:
+        print(f"[scraper_oglasi_rs] Page error: {e}")
+        results = []
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+    return results
