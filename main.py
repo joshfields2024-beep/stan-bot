@@ -12,8 +12,9 @@ from scrapers.scraper_oglasi_rs import search_oglasi_rs
 # --- KONFIG ---
 TELEGRAM_BOT_TOKEN = "8203967152:AAF6d3JldWam3TphxHYrofxquzUQsf3FI2M"
 TELEGRAM_CHAT_ID = "586131374"
+CHECK_INTERVAL_MINUTES = 10  # koliko minuta između provera novih
 
-# Parametri iz tvog linka (identični filteri)
+# Kriterijumi (identični tvom linku)
 DEFAULT_CRITERIA: Dict[str, Any] = {
     "tip": "prodaja",
     "vrsta": "stan",
@@ -36,11 +37,10 @@ DEFAULT_CRITERIA: Dict[str, Any] = {
     "parking": True,
 }
 
-# Datoteka za evidenciju već poslatih oglasa (URL kao ključ)
 SENT_DB_PATH = pathlib.Path("data/sent_oglasi.json")
 
 
-# --- POMOĆNE ---
+# --- FUNKCIJE ---
 
 def _load_sent() -> set:
     try:
@@ -62,72 +62,88 @@ def _fmt_msg(item: Dict[str, Any]) -> str:
     price = html.escape(item.get("price") or "")
     location = html.escape(item.get("location") or "")
     url = item.get("url") or ""
-    parts = []
-    parts.append(f"<b>{title}</b>")
+    parts = [f"<b>{title}</b>"]
     meta = " — ".join(x for x in [price, location] if x)
     if meta:
         parts.append(meta)
     if url:
         parts.append(url)
-    text = "\n".join(parts)
-    # Telegram limit je 4096 karaktera
-    return text[:4096]
+    return "\n".join(parts)[:4096]
 
 
 def _send_telegram(text: str) -> bool:
     api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
-        r = requests.post(
-            api,
-            timeout=15,
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            },
-        )
+        r = requests.post(api, timeout=15, data={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        })
         return r.ok
     except Exception:
         return False
 
 
-# --- MAIN ---
-
-def main() -> int:
-    results = search_oglasi_rs(DEFAULT_CRITERIA)
-
-    # Dedup po URL-u
-    sent = _load_sent()
-    new_items = []
-    for it in results:
-        url = (it.get("url") or "").strip()
-        if url and url not in sent:
-            new_items.append(it)
-
-    # Pošalji samo nove
-    sent_any = False
-    for it in new_items:
-        ok = _send_telegram(_fmt_msg(it))
-        # mali razmak da ne udarimo rate limit
-        time.sleep(0.4)
+def _send_ads(ads: List[Dict[str, Any]], sent_urls: set) -> int:
+    """Šalje oglase na Telegram i vraća broj uspešno poslatih."""
+    sent_count = 0
+    for it in ads:
+        msg = _fmt_msg(it)
+        ok = _send_telegram(msg)
+        print(f"  -> Slanje oglasa '{it.get('title')}' : {'OK' if ok else 'FAIL'}")
         if ok:
-            sent.add((it.get("url") or "").strip())
-            sent_any = True
+            sent_urls.add((it.get("url") or "").strip())
+            sent_count += 1
+        time.sleep(0.5)  # sprečava rate limit
+    return sent_count
 
-    # Upis evidencije ako ima novih poslatih
-    if sent_any:
-        _save_sent(sorted(u for u in sent if u))
 
-    # I za log/cron: ispiši rezime u stdout kao JSON
-    summary = {
-        "found": len(results),
-        "new_sent": len(new_items),
-        "criteria": DEFAULT_CRITERIA,
-    }
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0
+def _full_initial_run():
+    """Prva pretraga – šalje sve oglase koji ispunjavaju kriterijume."""
+    print("[INIT] Pokrećem početnu pretragu svih oglasa...")
+    results = search_oglasi_rs(DEFAULT_CRITERIA)
+    print(f"[INIT] Pronađeno {len(results)} oglasa.")
+
+    sent_urls = set()
+    sent_count = _send_ads(results, sent_urls)
+
+    _save_sent(sorted(u for u in sent_urls if u))
+    print(f"[INIT] Poslato {sent_count} oglasa. Evidencija zapisana.\n")
+
+
+def _check_new():
+    """Proverava samo nove oglase i šalje ih."""
+    results = search_oglasi_rs(DEFAULT_CRITERIA)
+    print(f"[CHECK] Pronađeno ukupno oglasa: {len(results)}")
+
+    sent_urls = _load_sent()
+    new_items = [it for it in results if (it.get("url") or "").strip() not in sent_urls]
+    print(f"[CHECK] Novi oglasi: {len(new_items)}")
+
+    if new_items:
+        sent_count = _send_ads(new_items, sent_urls)
+        _save_sent(sorted(u for u in sent_urls if u))
+        print(f"[CHECK] Poslato {sent_count} novih oglasa.\n")
+    else:
+        print("[CHECK] Nema novih oglasa.\n")
+
+
+# --- MAIN LOOP ---
+
+def main():
+    # Prvo punjenje – šalje sve oglase
+    _full_initial_run()
+
+    # Loop za proveru novih oglasa
+    print(f"[LOOP] Ulazim u režim provere svakih {CHECK_INTERVAL_MINUTES} minuta.\n")
+    while True:
+        try:
+            _check_new()
+        except Exception as e:
+            print(f"[ERROR] {e}")
+        time.sleep(CHECK_INTERVAL_MINUTES * 60)
 
 
 if __name__ == "__main__":
-    os._exit(main())
+    main()
